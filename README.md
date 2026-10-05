@@ -1,6 +1,6 @@
 # i-Buddy Server
 
-Node.js REST API for the MSN i-Buddy USB figure: head colors, heart light, wing flapping and torso turns. Linux/Docker hardware support is tested with vendor `1130`, product `0002`; other variants are deliberately not selected automatically. Node 24+, one dependency (`usb`, pinned in the lockfile), no cloud service.
+Node.js REST API for the MSN i-Buddy USB figure: head colors, heart light, wing flapping, torso turns and bounded flashing/movement alerts. Linux/Docker hardware support is tested with vendor `1130`, product `0002`; other variants are deliberately not selected automatically. Node 24+, one dependency (`usb`, pinned in the lockfile), no cloud service.
 
 ## Start with Docker on Linux
 
@@ -39,9 +39,12 @@ All POST bodies are JSON objects, including `{}` for reset. Unknown fields, wron
 | POST `/api/heart` | `{"on":true,"ttlSeconds":60}` | Heart light on/off |
 | POST `/api/flap` | `{"count":3,"intervalMs":150}` | 1–5 flaps; 100–250 ms per wing phase, with 100 ms idle gaps |
 | POST `/api/turn` | `{"direction":"left","durationMs":200}` | left/right pulse, 50–400 ms, then actuator idle |
+| POST `/api/alert` | `{"durationSeconds":30}` | Start a flashing/movement alert, 5–60 seconds; HTTP 202 with action id |
 | POST `/api/reset` | `{}` | Cancel the current action, LEDs off, actuators idle |
 
 LED `ttlSeconds` defaults to 60 and accepts 1–120. Any LED command renews the **combined head/heart lease**; both turn off at its expiry. Motion preserves LED settings and returns both actuators to idle even on cancellation/failure when USB still responds. Movement commands have a two-second cooldown after completion; repeat motion receives 429 with `Retry-After: 2`. Overlapping commands receive 409 instead of being queued. Reset can interrupt motion. Physical centering is not guaranteed by the reset byte.
+
+Alerts default to 30 seconds and run asynchronously while holding the controller lock. They alternate red/blue head flashes and the heart light, with a short wing flap and alternating left/right turn each three-second cycle. Each wing phase and turn lasts 150 ms; motors remain idle for over two seconds between bursts. Duration counts animation delays; USB transfer overhead adds a little time. Completion and reset finish with all LEDs off and motors idle. `activeAction` reports the running alert id/type/start/duration; `lastAlert` reports the latest id and `completed`, `cancelled` or `failed` outcome. Poll status to follow an accepted alert; 202 means started, not physically measured completion. Reset and graceful shutdown cancel alerts. Scheduling and persistence belong to the caller; this USB API does not store schedules or repeat failed requests.
 
 Example with Node's env-file support (no token printed or embedded in command history):
 

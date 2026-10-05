@@ -18,7 +18,7 @@ test('HTTP auth, types, bounds and unknown fields block commands before USB writ
   for (const [path, input] of [['/api/head', {color: ['red']}], ['/api/head', {color: 'ultraviolet'}],
     ['/api/heart', {on: 1}], ['/api/flap', {count: 100}], ['/api/flap', {intervalMs: 0}],
     ['/api/turn', {direction: 'left', durationMs: 401}], ['/api/reset', {raw: 0}],
-    ['/api/head', {color: 'red', ttlSeconds: 121}], ['/api/head', null]]) {
+    ['/api/head', {color: 'red', ttlSeconds: 121}], ['/api/head', null], ['/api/alert', {durationSeconds: 61}], ['/api/alert', {durationSeconds: 4}], ['/api/alert', {durationSeconds: true}], ['/api/alert', {raw: 0}]]) {
     assert.equal((await post(path, input)).status, 400);
   }
   assert.equal((await post('/api/head', {color: 'red'}, {origin: 'http://other.example'})).status, 403);
@@ -32,6 +32,12 @@ test('HTTP auth, types, bounds and unknown fields block commands before USB writ
   const turn = await post('/api/turn', {direction: 'left', durationMs: 50});
   assert.equal(turn.status, 200);
   assert.equal((await turn.json()).state.turn, 'idle');
+  assert.equal((await post('/api/reset', {})).status, 200);
+  c.wait = (await import('node:timers/promises')).setTimeout;
+  const alert = await post('/api/alert', {durationSeconds: 5});
+  assert.equal(alert.status, 202);
+  assert.equal((await alert.json()).activeAction.type, 'alert');
+  assert.equal((await post('/api/alert', {})).status, 409);
   assert.equal((await post('/api/reset', {})).status, 200);
   device.connect = async () => { throw new Error('unplugged'); }; device.connected = false;
   assert.equal((await post('/api/head', {color: 'red'})).status, 503);

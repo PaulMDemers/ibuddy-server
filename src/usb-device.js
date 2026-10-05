@@ -4,10 +4,12 @@ import {IDLE, SETUP, TRANSFER, report} from './protocol.js';
 export class UsbDevice {
   constructor() {
     this.device = null;
+    this.isConnected = false;
+    this.location = null;
     this.detached = false;
     this.lastError = null;
   }
-  get connected() { return Boolean(this.device?.opened); }
+  get connected() { return this.isConnected; }
   async connect() {
     if (this.connected) return;
     const candidates = (await usb.getDevices()).filter(d => d.vendorId === 0x1130 && d.productId === 0x0002);
@@ -24,6 +26,10 @@ export class UsbDevice {
         this.detached = true;
         await device.claimInterface(1);
       }
+      // Cache metadata while idle: native USB getters cannot borrow a device
+      // during an asynchronous transfer (usb 3.x). Status uses JS values only.
+      this.location = {bus: device.bus, address: device.address};
+      this.isConnected = true;
       await this.send(IDLE);
       this.lastError = null;
     } catch (error) {
@@ -50,6 +56,8 @@ export class UsbDevice {
   async close() {
     const device = this.device;
     this.device = null;
+    this.isConnected = false;
+    this.location = null;
     if (!device) return;
     try { await device.releaseInterface(1); } catch {}
     if (this.detached) { try { await device.attachKernelDriver(1); } catch {} }
@@ -58,6 +66,6 @@ export class UsbDevice {
   }
   info() {
     return {connected: this.connected, vendorId: '1130', productId: '0002', interface: 1,
-      ...(this.connected ? {bus: this.device.bus, address: this.device.address} : {})};
+      ...(this.connected ? this.location : {})};
   }
 }

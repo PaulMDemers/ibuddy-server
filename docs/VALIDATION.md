@@ -10,3 +10,9 @@ October 5, 2026: Linux x86-64, Node 24, physical i-Buddy `1130:0002`, using inte
 - `npm audit --omit=dev` reported zero known dependency vulnerabilities at validation time.
 
 Unplug/replug with a changed USB bus address and host reboot recovery were not physically exercised. Update/recreate the mapped container if the node changes. Runtime traces, local credentials and host-specific configuration stay outside the public repository.
+
+## Bounded alerts — October 5, 2026
+
+Nine automated tests now pass, adding asynchronous alert completion, total delay bounds, motor idle cleanup, reset/shutdown cancellation, HTTP 202/bounds/busy behavior and status during a native USB transfer. The live integration initially exposed usb 3.x native borrow errors when status accessed USB getters during a transfer. Connection/location metadata is now cached in JavaScript while idle; a regression fixture deliberately throws on every native getter during status reads.
+
+After that fix, a five-second alert accepted with an action id, completed, and reported LEDs off and motors idle. A second live alert was cancelled through reset while running, also ending idle. Dashboard-side scheduling survived service recreation. These checks validate acknowledged USB commands and API outcomes; the owner has not separately confirmed the physical alarm pattern. The earlier owner-confirmed individual controls remain documented above.

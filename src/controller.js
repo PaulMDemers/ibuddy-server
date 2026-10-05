@@ -1,4 +1,5 @@
 import {setTimeout as sleep} from 'node:timers/promises';
+import {randomUUID} from 'node:crypto';
 import {IDLE, commandByte} from './protocol.js';
 
 export class ApiError extends Error {
@@ -10,6 +11,7 @@ export class Controller {
     this.device = device;
     this.state = {...IDLE};
     this.current = null;
+    this.lastAlert = null;
     this.resetting = false;
     this.stopping = false;
     this.ledTimer = null;
@@ -21,7 +23,7 @@ export class Controller {
   status() {
     return {...this.device.info(), state: {...this.state}, commandByte: commandByte(this.state),
       stateSource: 'last acknowledged USB output; no physical position feedback',
-      busy: Boolean(this.current) || this.resetting, ledExpiresAt: this.ledExpiresAt,
+      busy: Boolean(this.current) || this.resetting, activeAction: this.current?.metadata || null, lastAlert: this.lastAlert, ledExpiresAt: this.ledExpiresAt,
       motionCooldownMs: Math.max(0, this.motionReadyAt - Date.now())};
   }
   async write(patch) {
@@ -29,12 +31,12 @@ export class Controller {
     await this.device.send(next);
     this.state = next;
   }
-  exclusive(fn, motion = false) {
+  exclusive(fn, motion = false, metadata = null) {
     if (this.stopping) throw new ApiError(503, 'Server is shutting down');
     if (this.current || this.resetting) throw new ApiError(409, 'Device busy; retry after the current action');
     if (motion && Date.now() < this.motionReadyAt) throw new ApiError(429, 'Motor cooldown; retry in two seconds');
     const abort = new AbortController();
-    const action = {abort, promise: null};
+    const action = {abort, promise: null, metadata};
     this.current = action;
     action.promise = (async () => {
       try {
@@ -91,6 +93,48 @@ export class Controller {
         await this.wait(durationMs, undefined, {signal});
       } finally { await this.write({wings: 'idle', turn: 'idle'}); }
     }, true);
+  }
+  async alert(durationSeconds = 30) {
+    const metadata = {id: randomUUID(), type: 'alert', startedAt: new Date().toISOString(), durationSeconds};
+    let ready, failed;
+    const started = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+    const frames = [
+      [{head: 'red', heart: true, wings: 'up'}, 150],
+      [{wings: 'down'}, 150],
+      [{wings: 'idle', turn: 'left'}, 150],
+      [{turn: 'idle'}, 550],
+      [{head: 'blue', heart: false}, 500],
+      [{head: 'red', heart: true}, 500],
+      [{head: 'blue', heart: false}, 500],
+      [{head: 'off'}, 500],
+    ];
+    // A three-second cycle leaves motors idle for over two seconds between bursts.
+    const task = this.exclusive(async signal => {
+      clearTimeout(this.ledTimer);
+      this.ledExpiresAt = null;
+      try {
+        await this.write({...IDLE, head: 'red', heart: true});
+        ready();
+        let elapsed = 0, cycle = 0;
+        while (elapsed < durationSeconds * 1000) {
+          for (const [patch, delay] of frames) {
+            if (elapsed >= durationSeconds * 1000) break;
+            await this.write(patch.turn === 'left' ? {...patch, turn: cycle % 2 ? 'right' : 'left'} : patch);
+            const interval = Math.min(delay, durationSeconds * 1000 - elapsed);
+            await this.wait(interval, undefined, {signal});
+            elapsed += interval;
+          }
+          cycle++;
+        }
+      } finally { await this.write(IDLE); }
+    }, true, metadata);
+    task.then(() => { this.lastAlert = {...metadata, outcome: 'completed'}; }, error => {
+      failed(error);
+      this.lastAlert = {...metadata, outcome: error.status === 409 ? 'cancelled' : 'failed'};
+      if (error.status !== 409) console.error('Alert failed:', error.message);
+    });
+    await started;
+    return this.status();
   }
   async reset() {
     if (this.resetting) throw new ApiError(409, 'Reset already in progress');

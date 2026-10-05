@@ -50,7 +50,7 @@ export function createApi(controller, {token = ''} = {}) {
         if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== req.headers.host) throw new ApiError(403, 'Foreign Origin rejected');
       }
       if (req.method === 'GET' && path === '/api/status') { res.end(JSON.stringify(controller.status())); return; }
-      const allowed = ['/api/head', '/api/heart', '/api/flap', '/api/turn', '/api/reset'];
+      const allowed = ['/api/head', '/api/heart', '/api/flap', '/api/turn', '/api/alert', '/api/reset'];
       if (!allowed.includes(path)) throw new ApiError(404, 'Unknown endpoint');
       if (req.method !== 'POST') throw new ApiError(405, 'Use POST');
       const input = await body(req);
@@ -70,10 +70,14 @@ export function createApi(controller, {token = ''} = {}) {
         fields(input, ['direction', 'durationMs']);
         if (!['left', 'right'].includes(input.direction)) throw new ApiError(400, 'direction must be left or right');
         result = await controller.turn(input.direction, number(input.durationMs, 200, 50, 400, 'durationMs'));
+      } else if (path === '/api/alert') {
+        fields(input, ['durationSeconds']);
+        result = await controller.alert(number(input.durationSeconds, 30, 5, 60, 'durationSeconds'));
+        res.statusCode = 202;
       } else {
         fields(input, []); result = await controller.reset();
       }
-      res.end(JSON.stringify({...result, busy: false}));
+      res.end(JSON.stringify(result));
     } catch (error) {
       res.statusCode = error.status || 503;
       if (res.statusCode === 429) res.setHeader('Retry-After', '2');

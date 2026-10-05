@@ -58,3 +58,39 @@ test('LED leases automatically expire and shutdown sends all-off', async () => {
   assert.equal(device.connected, false);
   assert.throws(() => c.turn('left', 50), error => error.status === 503);
 });
+
+test('Alert is bounded, rests motors between bursts, reports completion and ends all-off', async t => {
+  const device = new FakeDevice(), delays = [];
+  const c = new Controller(device, {cooldownMs: 0, wait: async ms => { delays.push(ms); await sleep(1); }});
+  t.after(() => c.close());
+  const status = await c.alert(5);
+  assert.equal(status.busy, true);
+  assert.equal(status.activeAction.type, 'alert');
+  const action = c.current.promise;
+  assert.throws(() => c.flap(1, 100), error => error.status === 409);
+  await action;
+  assert.equal(delays.reduce((a,b) => a+b, 0), 5000);
+  assert.deepEqual(device.writes.at(-1), IDLE);
+  assert.equal(c.status().lastAlert.outcome, 'completed');
+  assert.equal(c.status().lastAlert.id, status.activeAction.id);
+  assert.ok(device.writes.some(s => s.head === 'blue'));
+  assert.deepEqual(device.writes.filter(s => s.turn !== 'idle').map(s => s.turn), ['left', 'right']);
+});
+
+test('Reset and shutdown cancel an alert; USB failure rejects start and releases controller', async t => {
+  const device = new FakeDevice();
+  const c = new Controller(device, {cooldownMs: 0});
+  t.after(() => c.close());
+  await c.alert(30);
+  await c.reset();
+  assert.equal(c.status().lastAlert.outcome, 'cancelled');
+  assert.deepEqual(c.state, IDLE);
+  await c.alert(30);
+  await c.close();
+  assert.equal(c.status().lastAlert.outcome, 'cancelled');
+  assert.equal(c.status().busy, false);
+  const bad = new Controller({...device, connected: false, async connect() { throw new Error('unplugged'); }});
+  await assert.rejects(bad.alert(5), /unplugged/);
+  assert.equal(bad.current, null);
+  assert.equal(bad.lastAlert.outcome, 'failed');
+});

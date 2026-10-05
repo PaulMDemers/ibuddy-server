@@ -12,8 +12,6 @@ services:
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
     ports:
       - "${BIND_IP:-127.0.0.1}:8082:8082"
-    devices:
-      - "${USB_DEVICE:?Set the i-Buddy USB path in .env}"
     stop_grace_period: 10s
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:8082/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

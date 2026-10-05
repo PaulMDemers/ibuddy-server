@@ -7,7 +7,9 @@ async function post(path, input) {
   const response = await fetch(`${base}/api/${path}`, {method: 'POST', headers, body: JSON.stringify(input)});
   const result = await response.json();
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status} ${result.error}`);
-  console.log(`${path}: accepted USB output 0x${result.commandByte.toString(16)}; ${JSON.stringify(result.state)}`);
+  for (const device of result.devices || [result]) {
+    console.log(`${path} ${device.id || "figure"}: accepted USB output 0x${device.commandByte.toString(16)}; ${JSON.stringify(device.state)}`);
+  }
 }
 let ready = false;
 for (let attempt = 0; attempt < 30; attempt++) {

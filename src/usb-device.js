@@ -2,7 +2,9 @@ import {usb} from 'usb';
 import {IDLE, SETUP, TRANSFER, report} from './protocol.js';
 
 export class UsbDevice {
-  constructor() {
+  constructor({raw = null, descriptor = null} = {}) {
+    this.raw = raw;
+    this.descriptor = descriptor;
     this.device = null;
     this.isConnected = false;
     this.location = null;
@@ -12,9 +14,12 @@ export class UsbDevice {
   get connected() { return this.isConnected; }
   async connect() {
     if (this.connected) return;
-    const candidates = (await usb.getDevices()).filter(d => d.vendorId === 0x1130 && d.productId === 0x0002);
-    if (candidates.length !== 1) throw new Error(candidates.length ? 'Multiple i-Buddies found; connect one device' : 'i-Buddy not connected');
-    const device = candidates[0];
+    let device = this.raw;
+    if (!device) {
+      const candidates = (await usb.getDevices()).filter(d => d.vendorId === 0x1130 && [1, 2].includes(d.productId));
+      if (candidates.length !== 1) throw new Error(candidates.length ? 'Choose a device from /api/devices' : 'i-Buddy not connected');
+      device = candidates[0];
+    }
     try {
       await device.open();
       this.device = device;
@@ -28,7 +33,7 @@ export class UsbDevice {
       }
       // Cache metadata while idle: native USB getters cannot borrow a device
       // during an asynchronous transfer (usb 3.x). Status uses JS values only.
-      this.location = {bus: device.bus, address: device.address};
+      this.location = this.descriptor ? {bus: this.descriptor.bus, address: this.descriptor.address} : {bus: device.bus, address: device.address};
       this.isConnected = true;
       await this.send(IDLE);
       this.lastError = null;
@@ -65,7 +70,7 @@ export class UsbDevice {
     try { await device.close(); } catch {}
   }
   info() {
-    return {connected: this.connected, vendorId: '1130', productId: '0002', interface: 1,
+    return {connected: this.connected, vendorId: '1130', productId: this.descriptor?.productId || '0002', interface: 1,
       ...(this.connected ? this.location : {})};
   }
 }

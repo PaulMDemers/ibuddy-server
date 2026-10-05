@@ -2,7 +2,7 @@
 
 Research checked October 5, 2026 against the independently maintained [py3buddy driver](https://github.com/armijnhemel/py3buddy/blob/632aba521897ba15c79e11f21325fcc0393fd814/py3buddy/py3buddy.py) and [ibuddy technical notes](https://github.com/pbrier/ibuddy/blob/524c2773e5604f80d3b249a024e0e5c2473e452a/ibuddy/TECHNICAL). This server is a new Node implementation; upstream applications are not bundled.
 
-The tested figure is VID `0x1130`, PID `0x0002`, with two HID interfaces. Output goes to interface 1. Each command sends a setup report followed by an output report through a class/interface OUT control transfer: `bmRequestType=0x21`, `bRequest=0x09`, `wValue=0x0002`, `wIndex=1`. Each payload is eight bytes:
+The tested figures use VID `0x1130`, PIDs `0x0001` and `0x0002`, with two HID interfaces. The pinned py3buddy driver above lists both variants with the same report protocol; other listed variants are not automatically selected here. Output goes to interface 1. Each command sends a setup report followed by an output report through a class/interface OUT control transfer: `bmRequestType=0x21`, `bRequest=0x09`, `wValue=0x0002`, `wIndex=1`. Each payload is eight bytes:
 
 ```text
 Setup:   22 09 00 02 01 00 00 00

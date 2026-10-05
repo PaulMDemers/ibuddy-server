@@ -95,7 +95,7 @@ export class Controller {
       } finally { await this.write({wings: 'idle', turn: 'idle'}); }
     }, true);
   }
-  alert(durationSeconds = 30) {
+  alert(durationSeconds = 30, sync = null) {
     // A three-second cycle leaves motors idle for over two seconds between bursts.
     return this.routine('alert', durationSeconds, cycle => [
       [{head: 'red', heart: true, wings: 'up'}, 150],
@@ -106,9 +106,9 @@ export class Controller {
       [{head: 'red', heart: true}, 500],
       [{head: 'blue', heart: false}, 500],
       [{head: 'off'}, 500],
-    ]);
+    ], sync);
   }
-  dance() {
+  dance(sync = null) {
     const colors = ['cyan', 'purple', 'yellow', 'blue', 'white', 'green', 'red'];
     // Two flaps and one short turn per five-second phrase, then 4.2s motor rest.
     return this.routine('dance', 25, cycle => {
@@ -122,10 +122,10 @@ export class Controller {
         [{head: color(3), heart: true}, 500], [{head: color(4), heart: false}, 550],
         [{head: color(5), heart: true}, 500], [{head: color(6), heart: false}, 1500],
       ];
-    });
+    }, sync);
   }
-  async routine(type, durationSeconds, framesForCycle) {
-    const metadata = {id: randomUUID(), type, startedAt: new Date().toISOString(), durationSeconds};
+  async routine(type, durationSeconds, framesForCycle, sync = null) {
+    const metadata = sync?.metadata || {id: randomUUID(), type, startedAt: new Date().toISOString(), durationSeconds};
     const outcomeKey = type === 'dance' ? 'lastDance' : 'lastAlert';
     let ready, failed;
     const started = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
@@ -135,6 +135,8 @@ export class Controller {
       try {
         await this.write({...IDLE, head: type === 'dance' ? 'cyan' : 'red', heart: true});
         ready();
+        if (sync?.startGate) await sync.startGate;
+        if (signal.aborted) throw new ApiError(409, 'Action cancelled by reset');
         let elapsed = 0, cycle = 0;
         while (elapsed < durationSeconds * 1000) {
           for (const [patch, delay] of framesForCycle(cycle)) {

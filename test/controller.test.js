@@ -94,3 +94,38 @@ test('Reset and shutdown cancel an alert; USB failure rejects start and releases
   assert.equal(bad.current, null);
   assert.equal(bad.lastAlert.outcome, 'failed');
 });
+
+test('Dance runs five varied phrases over 25 seconds, rests motors, and finishes all-off', async t => {
+  const device = new FakeDevice(), delays = [], samples = [];
+  const c = new Controller(device, {cooldownMs: 0, wait: async ms => { delays.push(ms); samples.push({...c.state, ms}); await sleep(1); }});
+  t.after(() => c.close());
+  const status = await c.dance();
+  assert.equal(status.activeAction.type, 'dance');
+  assert.equal(status.activeAction.durationSeconds, 25);
+  await assert.rejects(c.alert(5), error => error.status === 409);
+  await c.current.promise;
+  assert.equal(delays.reduce((a,b)=>a+b,0), 25000);
+  assert.equal(samples.filter(s=>s.wings==='up').length, 10);
+  assert.deepEqual(samples.filter(s=>s.turn!=='idle').map(s=>s.turn), ['left','right','left','right','left']);
+  assert.equal(new Set(samples.map(s=>s.head).filter(s=>s!=='off')).size, 7);
+  for (let phrase = 0; phrase < 5; phrase++) {
+    const frames=samples.slice(phrase*12,phrase*12+12);
+    assert.equal(frames.filter(s=>s.wings==='idle' && s.turn==='idle').reduce((a,s)=>a+s.ms,0), 4200);
+    assert.ok(frames.every(s=>(s.wings==='idle' && s.turn==='idle') || s.ms<=200));
+  }
+  assert.deepEqual(device.writes.at(-1), IDLE);
+  assert.equal(c.status().lastDance.outcome, 'completed');
+  assert.equal(c.status().lastAlert, null);
+});
+
+test('Dance can be stopped immediately without overwriting alarm outcomes', async t => {
+  const device = new FakeDevice();
+  const c = new Controller(device, {cooldownMs: 0});
+  t.after(() => c.close());
+  c.lastAlert = {id:'earlier-alarm', outcome:'completed'};
+  await c.dance();
+  await c.reset();
+  assert.deepEqual(c.state, IDLE);
+  assert.equal(c.status().lastDance.outcome, 'cancelled');
+  assert.equal(c.status().lastAlert.id, 'earlier-alarm');
+});

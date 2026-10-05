@@ -50,7 +50,7 @@ export function createApi(controller, {token = ''} = {}) {
         if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== req.headers.host) throw new ApiError(403, 'Foreign Origin rejected');
       }
       if (req.method === 'GET' && path === '/api/status') { res.end(JSON.stringify(controller.status())); return; }
-      const allowed = ['/api/head', '/api/heart', '/api/flap', '/api/turn', '/api/alert', '/api/reset'];
+      const allowed = ['/api/head', '/api/heart', '/api/flap', '/api/turn', '/api/alert', '/api/dance', '/api/reset'];
       if (!allowed.includes(path)) throw new ApiError(404, 'Unknown endpoint');
       if (req.method !== 'POST') throw new ApiError(405, 'Use POST');
       const input = await body(req);
@@ -73,6 +73,10 @@ export function createApi(controller, {token = ''} = {}) {
       } else if (path === '/api/alert') {
         fields(input, ['durationSeconds']);
         result = await controller.alert(number(input.durationSeconds, 30, 5, 60, 'durationSeconds'));
+        res.statusCode = 202;
+      } else if (path === '/api/dance') {
+        fields(input, []);
+        result = await controller.dance();
         res.statusCode = 202;
       } else {
         fields(input, []); result = await controller.reset();

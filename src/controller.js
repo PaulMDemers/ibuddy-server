@@ -12,6 +12,7 @@ export class Controller {
     this.state = {...IDLE};
     this.current = null;
     this.lastAlert = null;
+    this.lastDance = null;
     this.resetting = false;
     this.stopping = false;
     this.ledTimer = null;
@@ -23,7 +24,7 @@ export class Controller {
   status() {
     return {...this.device.info(), state: {...this.state}, commandByte: commandByte(this.state),
       stateSource: 'last acknowledged USB output; no physical position feedback',
-      busy: Boolean(this.current) || this.resetting, activeAction: this.current?.metadata || null, lastAlert: this.lastAlert, ledExpiresAt: this.ledExpiresAt,
+      busy: Boolean(this.current) || this.resetting, activeAction: this.current?.metadata || null, lastAlert: this.lastAlert, lastDance: this.lastDance, ledExpiresAt: this.ledExpiresAt,
       motionCooldownMs: Math.max(0, this.motionReadyAt - Date.now())};
   }
   async write(patch) {
@@ -94,32 +95,51 @@ export class Controller {
       } finally { await this.write({wings: 'idle', turn: 'idle'}); }
     }, true);
   }
-  async alert(durationSeconds = 30) {
-    const metadata = {id: randomUUID(), type: 'alert', startedAt: new Date().toISOString(), durationSeconds};
-    let ready, failed;
-    const started = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
-    const frames = [
+  alert(durationSeconds = 30) {
+    // A three-second cycle leaves motors idle for over two seconds between bursts.
+    return this.routine('alert', durationSeconds, cycle => [
       [{head: 'red', heart: true, wings: 'up'}, 150],
       [{wings: 'down'}, 150],
-      [{wings: 'idle', turn: 'left'}, 150],
+      [{wings: 'idle', turn: cycle % 2 ? 'right' : 'left'}, 150],
       [{turn: 'idle'}, 550],
       [{head: 'blue', heart: false}, 500],
       [{head: 'red', heart: true}, 500],
       [{head: 'blue', heart: false}, 500],
       [{head: 'off'}, 500],
-    ];
-    // A three-second cycle leaves motors idle for over two seconds between bursts.
+    ]);
+  }
+  dance() {
+    const colors = ['cyan', 'purple', 'yellow', 'blue', 'white', 'green', 'red'];
+    // Two flaps and one short turn per five-second phrase, then 4.2s motor rest.
+    return this.routine('dance', 25, cycle => {
+      const color = offset => colors[(cycle * 2 + offset) % colors.length];
+      return [
+        [{head: color(0), heart: true, wings: 'up'}, 150],
+        [{wings: 'down'}, 150], [{wings: 'up'}, 150], [{wings: 'down'}, 150],
+        [{wings: 'idle', turn: cycle % 2 ? 'right' : 'left'}, 200],
+        [{turn: 'idle', head: color(1), heart: false}, 400],
+        [{head: color(2), heart: true}, 450], [{head: 'off', heart: false}, 300],
+        [{head: color(3), heart: true}, 500], [{head: color(4), heart: false}, 550],
+        [{head: color(5), heart: true}, 500], [{head: color(6), heart: false}, 1500],
+      ];
+    });
+  }
+  async routine(type, durationSeconds, framesForCycle) {
+    const metadata = {id: randomUUID(), type, startedAt: new Date().toISOString(), durationSeconds};
+    const outcomeKey = type === 'dance' ? 'lastDance' : 'lastAlert';
+    let ready, failed;
+    const started = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
     const task = this.exclusive(async signal => {
       clearTimeout(this.ledTimer);
       this.ledExpiresAt = null;
       try {
-        await this.write({...IDLE, head: 'red', heart: true});
+        await this.write({...IDLE, head: type === 'dance' ? 'cyan' : 'red', heart: true});
         ready();
         let elapsed = 0, cycle = 0;
         while (elapsed < durationSeconds * 1000) {
-          for (const [patch, delay] of frames) {
+          for (const [patch, delay] of framesForCycle(cycle)) {
             if (elapsed >= durationSeconds * 1000) break;
-            await this.write(patch.turn === 'left' ? {...patch, turn: cycle % 2 ? 'right' : 'left'} : patch);
+            await this.write(patch);
             const interval = Math.min(delay, durationSeconds * 1000 - elapsed);
             await this.wait(interval, undefined, {signal});
             elapsed += interval;
@@ -128,10 +148,10 @@ export class Controller {
         }
       } finally { await this.write(IDLE); }
     }, true, metadata);
-    task.then(() => { this.lastAlert = {...metadata, outcome: 'completed'}; }, error => {
+    task.then(() => { this[outcomeKey] = {...metadata, outcome: 'completed'}; }, error => {
       failed(error);
-      this.lastAlert = {...metadata, outcome: error.status === 409 ? 'cancelled' : 'failed'};
-      if (error.status !== 409) console.error('Alert failed:', error.message);
+      this[outcomeKey] = {...metadata, outcome: error.status === 409 ? 'cancelled' : 'failed'};
+      if (error.status !== 409) console.error(`${type} failed:`, error.message);
     });
     await started;
     return this.status();

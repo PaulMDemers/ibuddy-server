@@ -56,4 +56,5 @@ test('LED leases automatically expire and shutdown sends all-off', async () => {
   await c.close();
   assert.deepEqual(device.writes.at(-1), IDLE);
   assert.equal(device.connected, false);
+  assert.throws(() => c.turn('left', 50), error => error.status === 503);
 });

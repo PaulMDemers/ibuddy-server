@@ -11,6 +11,7 @@ export class Controller {
     this.state = {...IDLE};
     this.current = null;
     this.resetting = false;
+    this.stopping = false;
     this.ledTimer = null;
     this.ledExpiresAt = null;
     this.cooldownMs = cooldownMs;
@@ -29,6 +30,7 @@ export class Controller {
     this.state = next;
   }
   exclusive(fn, motion = false) {
+    if (this.stopping) throw new ApiError(503, 'Server is shutting down');
     if (this.current || this.resetting) throw new ApiError(409, 'Device busy; retry after the current action');
     if (motion && Date.now() < this.motionReadyAt) throw new ApiError(429, 'Motor cooldown; retry in two seconds');
     const abort = new AbortController();
@@ -106,6 +108,7 @@ export class Controller {
     return this.status();
   }
   async close() {
+    this.stopping = true;
     try { if (this.device.connected || this.current) await this.reset(); }
     finally { clearTimeout(this.ledTimer); await this.device.close(); }
   }

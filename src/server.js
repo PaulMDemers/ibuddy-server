@@ -12,7 +12,7 @@ const controller = new Controller(device);
 try { await device.connect(); } catch (error) { console.error('Startup USB connection:', error.message); }
 const server = createApi(controller, {token});
 server.listen(port, host, () => console.log(`i-Buddy API listening on ${host}:${port}; USB connected=${device.connected}`));
-server.on('error', error => { console.error(error.message); shutdown(); });
+server.on('error', error => { console.error(error.message); process.exitCode = 1; shutdown(); });
 let closing = false;
 async function shutdown() {
   if (closing) return;

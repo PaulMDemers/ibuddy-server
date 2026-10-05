@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    container_name: ibuddy-api
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8082
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+    ports:
+      - "${BIND_IP:-127.0.0.1}:8082:8082"
+    devices:
+      - "${USB_DEVICE:?Set the i-Buddy USB path in .env}"
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8082/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '2'}

@@ -1,0 +1,19 @@
+{
+  "name": "ibuddy-server",
+  "version": "1.0.0",
+  "description": "Local Node.js REST API for the MSN i-Buddy USB figure",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "hardware-check": "node scripts/hardware-check.js"
+  },
+  "dependencies": {
+    "usb": "3.2.1"
+  }
+}

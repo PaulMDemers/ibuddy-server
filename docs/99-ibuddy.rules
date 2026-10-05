@@ -1,0 +1,2 @@
+# Optional host-side rule for direct Node execution (not needed for Docker).
+SUBSYSTEM=="usb", ATTR{idVendor}=="1130", ATTR{idProduct}=="0002", MODE="0660", GROUP="plugdev"

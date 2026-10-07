@@ -29,6 +29,7 @@ export class Fleet {
     this.lastAlert = null;
     this.lastDance = null;
     this.stopping = false;
+    this.maintenanceUntil = 0;
   }
   get device() { return {connected: this.status().connected}; }
   async refresh() {
@@ -49,7 +50,7 @@ export class Fleet {
       const connect = [];
       for (const {raw, descriptor} of found) {
         let entry = this.entries.get(descriptor.id);
-        if (!entry?.present || entry.descriptor.address !== descriptor.address) {
+        if (!entry?.present || entry.descriptor.address !== descriptor.address || !entry.controller.device.connected) {
           if (entry?.present) { try { await entry.controller.close(); } catch {} }
           entry = {descriptor, present: true, controller: this.makeController(raw, descriptor)};
           this.entries.set(descriptor.id, entry);
@@ -67,9 +68,18 @@ export class Fleet {
       connectedCount: present.filter(d => d.connected).length, devices,
       state: present.length === 1 ? present[0].state : null,
       stateSource: 'last acknowledged USB outputs per device; no physical feedback',
-      busy: Boolean(this.group) || present.some(d => d.busy),
+      busy: this.maintenanceUntil > Date.now() || Boolean(this.group) || present.some(d => d.busy),
+      maintenanceUntil: this.maintenanceUntil > Date.now() ? new Date(this.maintenanceUntil).toISOString() : null,
       activeAction: this.group?.metadata || null, lastAlert: this.lastAlert, lastDance: this.lastDance,
       motionCooldownMs: Math.max(0, ...present.map(d => d.motionCooldownMs))};
+  }
+  quiesce() {
+    if (this.stopping) throw new ApiError(503, 'Server is shutting down');
+    if (this.refreshing || this.status().busy) throw new ApiError(409, 'An i-Buddy is busy; recovery deferred');
+    // Reserve an idle fleet before the host recreates Docker USB mappings.
+    // A failed restart releases the reservation automatically after 30 seconds.
+    this.maintenanceUntil = Date.now() + 30000;
+    return this.status();
   }
   async list() { await this.refresh(); return this.status(); }
   async getController(id) {
@@ -83,12 +93,14 @@ export class Fleet {
     await this.refresh();
     const entries = [...this.entries.values()].filter(e => e.present);
     if (!entries.length) throw new ApiError(503, 'No i-Buddies available');
+    if (this.maintenanceUntil > Date.now()) throw new ApiError(503, 'USB recovery in progress');
     if (this.group || entries.some(e => e.controller.status().busy)) throw new ApiError(409, 'An i-Buddy is busy');
     if (motion && entries.some(e => e.controller.status().motionCooldownMs > 0)) throw new ApiError(429, 'Motor cooldown; retry in two seconds');
     return entries;
   }
   assertReady(entries, motion) {
     if (this.stopping) throw new ApiError(503, 'Server is shutting down');
+    if (this.maintenanceUntil > Date.now()) throw new ApiError(503, 'USB recovery in progress');
     if (this.group || entries.some(e => e.controller.status().busy)) throw new ApiError(409, 'An i-Buddy is busy');
     if (motion && entries.some(e => e.controller.status().motionCooldownMs > 0)) throw new ApiError(429, 'Motor cooldown; retry in two seconds');
   }

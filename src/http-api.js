@@ -50,6 +50,13 @@ export function createApi(controller, {token = ''} = {}) {
         if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== req.headers.host) throw new ApiError(403, 'Foreign Origin rejected');
       }
       if (req.method === 'GET' && path === '/api/devices') { res.end(JSON.stringify(await controller.list())); return; }
+      if (req.method === 'POST' && path === '/api/maintenance') {
+        fields(await body(req), []);
+        res.end(JSON.stringify(controller.quiesce())); return;
+      }
+      if (req.method === 'POST' && controller.maintenanceUntil > Date.now() && !path.endsWith('/reset')) {
+        throw new ApiError(503, 'USB recovery in progress; retry shortly');
+      }
       let target = controller;
       const devicePath = path.match(/^\/api\/devices\/([^/]+)\/(status|head|heart|flap|turn|alert|dance|reset)$/);
       if (devicePath) { target = await controller.getController(decodeURIComponent(devicePath[1])); path = `/api/${devicePath[2]}`; }
@@ -58,6 +65,10 @@ export function createApi(controller, {token = ''} = {}) {
       if (!allowed.includes(path)) throw new ApiError(404, 'Unknown endpoint');
       if (req.method !== 'POST') throw new ApiError(405, 'Use POST');
       const input = await body(req);
+      // Recheck after async body/discovery reads: maintenance may begin meanwhile.
+      if (controller.maintenanceUntil > Date.now() && path !== '/api/reset') {
+        throw new ApiError(503, 'USB recovery in progress; retry shortly');
+      }
       let result;
       if (path === '/api/head') {
         fields(input, ['color', 'ttlSeconds']);

@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {request} from 'node:http';
 import assert from 'node:assert/strict';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {Fleet, describe} from '../src/fleet.js';
@@ -96,4 +97,50 @@ test('Unopened USB address zero resolves through Linux sysfs before Docker mappi
   assert.equal(d.address, 42);
   assert.equal(d.id, 'usb-001-2-p0001');
   assert.throws(() => describe(raw(2, 1, 0), () => '0'), /USB address unavailable/);
+});
+
+test('Recovery reservation is atomic with action starts and rejects both group and per-device writes', async t => {
+  const {fleet}=setup(2,sleep);await fleet.refresh();
+  const server=createApi(fleet,{token:'test-token'});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  t.after(async()=>{await fleet.close();await new Promise(r=>server.close(r));});
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const headers={authorization:'Bearer test-token','content-type':'application/json'};
+  const post=(path,body={})=>fetch(base+path,{method:'POST',headers,body:JSON.stringify(body)});
+  await fleet.dance();
+  assert.equal((await post('/api/maintenance')).status,409);
+  await fleet.reset();
+  assert.equal((await post('/api/maintenance',{extra:true})).status,400);
+  assert.equal((await post('/api/maintenance')).status,200);
+  assert.equal(fleet.status().busy,true);
+  const id=fleet.status().devices[0].id;
+  assert.equal((await post('/api/dance')).status,503);
+  assert.equal((await post(`/api/devices/${id}/head`,{color:'red'})).status,503);
+  await assert.rejects(fleet.dance(),e=>e.status===503);
+  assert.equal((await post('/api/reset')).status,200);
+  fleet.maintenanceUntil=Date.now()-1;
+  assert.equal((await post(`/api/devices/${id}/head`,{color:'red'})).status,200);
+  // The request passes its first guard, then waits for the remainder of its body.
+  let pending;
+  const reply = new Promise((resolve,reject)=>{
+    pending=request(base+`/api/devices/${id}/head`,{method:'POST',headers},res=>{
+      res.resume();res.on('end',()=>resolve(res.statusCode));
+    });pending.on('error',reject);pending.write('{"color":');
+  });
+  await sleep(10);
+  assert.equal((await post('/api/maintenance')).status,200);
+  pending.end('"blue"}');
+  assert.equal(await reply,503);
+  assert.equal(fleet.status().devices[0].state.head,'red');
+});
+
+test('Idle discovery retries a failed open with a fresh handle at the same USB address', async t => {
+  let attempts=0;
+  const fleet=new Fleet({discover:()=>[raw(1,1,18)],makeController:(_,descriptor)=>new Controller({
+    connected:false,async connect(){attempts++;if(attempts===1)throw Error('USB temporarily resetting');this.connected=true;},
+    async send(){},async close(){this.connected=false;},info(){return {connected:this.connected,...descriptor};}
+  })});
+  t.after(()=>fleet.close());
+  await fleet.refresh();assert.equal(fleet.status().connectedCount,0);
+  await fleet.refresh();assert.equal(fleet.status().connectedCount,1);
+  assert.equal(attempts,2);
 });

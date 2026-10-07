@@ -1,0 +1,11 @@
+[Unit]
+Description=Check i-Buddy USB mappings periodically
+
+[Timer]
+OnStartupSec=10s
+OnUnitInactiveSec=15s
+AccuracySec=1s
+Unit=ibuddy-usb-recovery.service
+
+[Install]
+WantedBy=timers.target

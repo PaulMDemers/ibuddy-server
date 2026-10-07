@@ -27,14 +27,14 @@ docker compose stop  # reset all outputs, release USB, then stop
 docker compose start --wait
 ```
 
-After adding/removing a figure, unplug/replug, or reboot, regenerate the device mapping and recreate the container:
+For automatic add/replug/reboot mapping repair, install the optional [USB recovery timer](docs/USB_RECOVERY.md). Without that timer, regenerate the device mapping and recreate the container after adding/removing a figure or changing USB nodes:
 
 ```bash
 node scripts/configure-usb.js
 docker compose up -d --force-recreate --wait
 ```
 
-Discovery refreshes every five seconds when idle, and on inventory/control requests. Device ids use USB bus, port topology and product id; address changes at the same port keep the id, moving ports changes it. Identical figures are distinguished by their ports because they have no serial number. Direct Node execution can discover newly attached accessible figures without container recreation. Docker still needs regeneration for new/changed nodes. The API stays available when USB devices are absent/inaccessible; controls return 503. No recognized devices makes the mapping script fail while preserving the old mapping. Host reboot/replug recovery still requires physical verification.
+The API discovers devices every five seconds when idle, and on inventory/control requests. The optional host recovery timer handles changed Docker mappings independently. Device ids use USB bus, port topology and product id; address changes at the same port keep the id, moving ports changes it. Identical figures are distinguished by their ports because they have no serial number. Direct Node execution can discover newly attached accessible figures without container recreation. Docker still needs regeneration for new/changed nodes. The API stays available when USB devices are absent/inaccessible; controls return 503. No recognized devices makes the mapping script fail while preserving the old mapping. Host reboot/replug recovery still requires physical verification.
 
 ## API
 
@@ -53,6 +53,7 @@ Unqualified `/api/*` controls apply to **all present supported figures**. For on
 | POST `/api/alert` | `{"durationSeconds":30}` | Start a flashing/movement alert, 5–60 seconds; HTTP 202 with action id |
 | POST `/api/dance` | `{"target":"all"}` or `{}` | Start a fixed 25-second attention-getting dance; HTTP 202 with action id |
 | POST `/api/reset` | `{}` | Cancel the current action, LEDs off, actuators idle |
+| POST `/api/maintenance` | `{}` | Reserve an idle fleet for mapping recovery for 30 seconds; 409 while busy |
 
 LED `ttlSeconds` defaults to 60 and accepts 1–120. Any LED command renews the **combined head/heart lease**; both turn off at its expiry. Motion preserves LED settings and returns both actuators to idle even on cancellation/failure when USB still responds. Movement commands have a two-second cooldown after completion; repeat motion receives 429 with `Retry-After: 2`. Overlapping commands receive 409 instead of being queued. Reset can interrupt motion. Physical centering is not guaranteed by the reset byte.
 
